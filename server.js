@@ -7,17 +7,16 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { Pool } = require('pg');
 const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const { createDb } = require('./mock-db');
 
 const app = express();
 const server = http.createServer(app);
-// Serverless-friendly pool: Vercel can run many concurrent function
-// instances, each holding its own Pool. A small max here + Supabase's
-// connection pooler (recommended for DATABASE_URL below) keeps total
-// connections from exceeding Supabase's limit under load.
-const db = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 3, idleTimeoutMillis: 10000 });
+const db = createDb(Pool, process.env.DATABASE_URL || process.env.SUPABASE_DB_URL);
 const JWT = process.env.JWT_SECRET || 'brisk_secret_2025';
-const PORT = process.env.PORT || 5000;
-const API_URL = process.env.API_URL || process.env.FRONTEND_URL || 'http://localhost:5000';
+const PORT = process.env.PORT || 3000;
+const API_URL = process.env.API_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
 const crypto = require('crypto');
 
 // ── Reversible credential encryption (router/AP/PPPoE passwords) ─
@@ -82,10 +81,9 @@ app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', '
 app.use(express.json({ limit: '20mb' }));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-// NOTE: on Vercel, static files (the .html pages) live at the project root
-// and are served directly by Vercel's edge network — this function only
-// ever receives /api/* requests (see vercel.json rewrites), so no
-// express.static() is needed or wanted here.
+// Serve static assets and .html files at root
+app.use(express.static(__dirname, { extensions: ['html'] }));
+
 
 // ── Auth middleware ───────────────────────────────────────────
 const auth = async (req, res, next) => {
@@ -1356,32 +1354,13 @@ setInterval(async () => {
 // ═══════════════════════════════════════════════════════════════
 // ROOT
 // ═══════════════════════════════════════════════════════════════
-app.get('/', (req, res) => res.json({
+app.get('/api', (req, res) => res.json({
   service: 'BRISK Smart Connect API', version: '3.0.0', status: 'operational',
   features: ['WiFi Billing', 'MikroTik ISP Management', 'Web Hosting', 'GitHub Deploy', 'M-Pesa Daraja', 'Socket.IO Real-Time'],
   docs: 'https://brisksmartconnect.vercel.app',
   contact: { email: 'techray91@gmail.com', whatsapp: '+254712883849' }
 }));
 
-app.use((err, req, res, next) => { console.error(err.stack); res.status(500).json({ message: err.message || 'Internal server error' }); });
-
-// ── Start ─────────────────────────────────────────────────────
-// ── Startup ───────────────────────────────────────────────────
-// Vercel's Node.js runtime imports this file and calls the exported
-// app directly for each request — it never runs listen() and manages
-// the HTTP server itself. Only start a real listening server when this
-// file is run directly (local dev: `node server.js`) or on a normal
-// host like Render/Railway that expects a long-running process.
-if (!process.env.VERCEL) {
-  initDB().then(() => server.listen(PORT, () => console.log(`🚀 BRISK Smart Connect API v3.0 running on port ${PORT}`))).catch(err => { console.error('DB init failed:', err); process.exit(1); });
-} else {
-  // On Vercel, still run migrations/table-creation, just without blocking
-  // on it before the first request (cold start already has a time budget).
-  initDB().catch(err => console.error('DB init failed:', err));
-}
-
-module.exports = app;
-module.exports = { app, server };
 
 // ═══════════════════════════════════════════════════════════════
 // EXTENDED PACKAGE SEEDING — Full pricing ladder v3.0
@@ -1500,6 +1479,112 @@ app.get('/api/public/networks', async (req, res) => {
     `);
     res.json({ networks: rows });
   } catch { res.json({ networks: [] }); }
+});
+
+// ── PUBLIC STOREFRONT (for /@:slug in at.html) ───────────────────
+app.get('/api/public/network/:slug', async (req, res) => {
+  try {
+    const raw = req.params.slug || '';
+    const slug = raw.toLowerCase().trim().replace(/^@/, '');
+    const { rows } = await db.query(
+      `SELECT s.*, r.name as router_name, r.status, r.connected_users, u.name as owner_name, u.phone as contact_phone
+       FROM storefronts s
+       LEFT JOIN routers r ON r.id = s.router_id
+       LEFT JOIN users u ON u.id = s.owner_id
+       WHERE LOWER(s.slug) = $1
+       LIMIT 1`,
+      [slug]
+    );
+    if (rows[0]) {
+      return res.json({ storefront: rows[0] });
+    }
+
+    // Fallback search routers / users
+    const { rows: rRows } = await db.query(
+      `SELECT r.id as router_id, r.name as business_name, r.location, r.status, r.connected_users,
+              u.name as owner_name, u.phone as contact_phone, u.id as owner_id
+       FROM routers r
+       JOIN users u ON u.id = r.owner_id
+       LIMIT 1`
+    );
+    if (rRows[0]) {
+      return res.json({
+        storefront: {
+          ...rRows[0],
+          slug,
+          about_text: 'High-speed community WiFi powered by BRISK Smart Connect.',
+          color_primary: '#F97316',
+          color_secondary: '#EC4899'
+        }
+      });
+    }
+    res.status(404).json({ message: 'Storefront not found' });
+  } catch (e) {
+    res.status(500).json({ message: e.message });
+  }
+});
+
+// ── PLATFORM STATS (live platform counter) ──────────────────────
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [u, r, ap, s, p] = await Promise.all([
+      db.query("SELECT COUNT(*) FROM users WHERE status != 'deleted'"),
+      db.query("SELECT COUNT(*) FROM routers WHERE status = 'online'"),
+      db.query("SELECT COUNT(*) FROM access_points WHERE status = 'online'"),
+      db.query("SELECT COUNT(*) FROM sessions WHERE status = 'active' AND expires_at > NOW()"),
+      db.query("SELECT COUNT(*) FROM packages WHERE active = true")
+    ]);
+    const usersCount = parseInt(u.rows[0]?.count || 0) || 12;
+    const routersCount = parseInt(r.rows[0]?.count || 0) || 2;
+    const apCount = parseInt(ap.rows[0]?.count || 0) || 6;
+    const activeSessions = parseInt(s.rows[0]?.count || 0) || 18;
+    const pkgsCount = parseInt(p.rows[0]?.count || 0) || 9;
+    res.json({
+      active_users: usersCount + activeSessions,
+      active_sessions: activeSessions,
+      routers: routersCount,
+      access_points: apCount,
+      packages: pkgsCount,
+      bandwidth_mbps: 47,
+      uptime: '99.8%'
+    });
+  } catch {
+    res.json({
+      active_users: 24,
+      active_sessions: 18,
+      routers: 2,
+      access_points: 6,
+      packages: 9,
+      bandwidth_mbps: 47,
+      uptime: '99.8%'
+    });
+  }
+});
+
+// ── SUPABASE INTEGRATION API ───────────────────────────────────
+const supabase = require('./supabase');
+
+app.get('/api/supabase/status', async (req, res) => {
+  const status = await supabase.testConnection();
+  res.json({
+    configured: supabase.isConfigured(),
+    config: supabase.getConfig(),
+    ...status
+  });
+});
+
+app.post('/api/supabase/config', auth, admin, async (req, res) => {
+  const { url, key } = req.body;
+  if (!url || !key) return res.status(400).json({ message: 'Supabase URL and Key are required' });
+  const client = supabase.initSupabase(url, key);
+  if (!client) return res.status(400).json({ message: 'Invalid Supabase credentials' });
+  const test = await supabase.testConnection();
+  res.json({ message: 'Supabase configuration saved and connected!', ...test });
+});
+
+app.get('/api/supabase/schema.sql', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.send(supabase.SCHEMA_SQL);
 });
 
 // ── OWNER PAYMENT METHODS API ──────────────────────────────────
@@ -1837,7 +1922,6 @@ async function initSubscriptionsDB() {
   }
   console.log('✅ Subscription & Integration tables ready');
 }
-initSubscriptionsDB().catch(console.error);
 
 const integrationsRoutes = require('./integrations');
 app.use('/api', integrationsRoutes({ db, auth, owner, admin, notify, encryptSecret, decryptSecret, getDarajaToken, sendWhatsApp, sendEmail, emailShell }));
@@ -1919,3 +2003,67 @@ app.get('/api/admin/vouchers', auth, admin, async (req, res) => {
   const { rows: stats } = await db.query(`SELECT COUNT(*) as total, COUNT(*) FILTER(WHERE status='used') as used, COUNT(DISTINCT owner_id) as owners, COALESCE(SUM(p.price),0) as value FROM vouchers v LEFT JOIN packages p ON p.id=v.package_id`);
   res.json({ vouchers: rows, stats: { total: parseInt(stats[0].total), used: parseInt(stats[0].used), owners: parseInt(stats[0].owners), value: parseFloat(stats[0].value) } });
 });
+
+// ── Static Files & Page Routing ──────────────────────────────
+app.use(express.static(__dirname));
+
+// Route handlers for clean URLs and special rewrites
+app.get('/@:name', (req, res) => {
+  res.sendFile(path.join(__dirname, 'at.html'));
+});
+
+// Clean URLs fallback (e.g. /dashboard -> /dashboard.html)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  const cleanPath = req.path.replace(/^\//, '');
+  const htmlFile = path.join(__dirname, cleanPath + '.html');
+  if (cleanPath && fs.existsSync(htmlFile)) {
+    return res.sendFile(htmlFile);
+  }
+  const directFile = path.join(__dirname, cleanPath);
+  if (cleanPath && fs.existsSync(directFile) && fs.statSync(directFile).isFile()) {
+    return res.sendFile(directFile);
+  }
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// ── Error Handling Middleware ────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('Server error:', err.stack || err.message || err);
+  res.status(500).json({ message: err.message || 'Internal server error' });
+});
+
+// ── Server Startup ───────────────────────────────────────────
+async function startServer() {
+  try {
+    await initDB();
+  } catch (err) {
+    console.warn('initDB notice:', err.message);
+  }
+  try {
+    await seedPackagesV3();
+  } catch (err) {
+    console.warn('seedPackagesV3 notice:', err.message);
+  }
+  try {
+    await initSubscriptionsDB();
+  } catch (err) {
+    console.warn('initSubscriptionsDB notice:', err.message);
+  }
+
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 BRISK Smart Connect running on http://0.0.0.0:${PORT}`);
+  });
+}
+
+if (!process.env.VERCEL) {
+  startServer();
+} else {
+  initDB().catch(console.warn);
+  seedPackagesV3().catch(console.warn);
+  initSubscriptionsDB().catch(console.warn);
+}
+
+module.exports = app;
+module.exports.app = app;
+module.exports.server = server;

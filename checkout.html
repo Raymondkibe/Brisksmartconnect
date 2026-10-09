@@ -65,6 +65,7 @@
 .testimonial-scroll-wrap{display:flex;gap:1.25rem;overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;padding-bottom:.5rem;scrollbar-width:none}.testimonial-scroll-wrap::-webkit-scrollbar{display:none}.testimonial-scroll-wrap .testimonial-card{flex:0 0 auto;width:290px;scroll-snap-align:start}
 @media(max-width:1100px){.stat-strip-6{grid-template-columns:repeat(3,1fr)}}@media(max-width:640px){.stat-strip-6{grid-template-columns:repeat(2,1fr)}#pkg-desktop-grid{display:none!important}#pkg-scroll-wrap{display:flex!important}#testimonial-desktop-grid{display:none!important}#testimonial-scroll-wrap{display:flex!important}.hero-buttons{flex-direction:column;width:100%}.hero-buttons .btn{width:100%;justify-content:center}}
 .active-filter{background:var(--or)!important;color:#fff!important;border-color:var(--or)!important}</style>
+  <link rel="stylesheet" href="theme.css">
 </head>
 <body>
 <div class="flash-container" id="flash-container"></div>
@@ -122,7 +123,33 @@ document.addEventListener('click',e=>{
   const dd=e.target.closest('[data-dd]');if(dd){const menu=document.getElementById(dd.dataset.dd)||dd.nextElementSibling;menu?.classList.toggle('open')}
 });
 function initTabs(){document.querySelectorAll('.tabs').forEach(tabsEl=>{const btns=tabsEl.querySelectorAll('.tab-btn');const container=tabsEl.closest('[data-tabs]')||tabsEl.parentElement;btns.forEach(btn=>{btn.addEventListener('click',()=>{btns.forEach(b=>b.classList.toggle('active',b===btn));container.querySelectorAll('.tab-pane').forEach(p=>p.classList.toggle('active',p.dataset.pane===btn.dataset.tab))})});container.querySelectorAll('.tab-pane').forEach((p,i)=>p.classList.toggle('active',i===0))})}
-function initHamburger(){const hb=document.getElementById('hamburger'),mn=document.getElementById('mobile-nav');if(hb&&mn)hb.addEventListener('click',()=>{hb.classList.toggle('open');mn.classList.toggle('open')})}
+function initHamburger(){
+  const hb=document.getElementById('hamburger')||document.querySelector('.hamburger,.nav-ham,.nav-toggle,.menu-toggle');
+  const mn=document.getElementById('mobile-nav')||document.getElementById('mob-menu')||document.querySelector('.mobile-nav,.mob-menu');
+  if(!hb||!mn)return;
+  if(hb._hamBound)return;
+  hb._hamBound=true;
+  hb.addEventListener('click',e=>{
+    e.stopPropagation();
+    const isOpen=hb.classList.toggle('open');
+    mn.classList.toggle('open',isOpen);
+    hb.setAttribute('aria-expanded',isOpen?'true':'false');
+  });
+  mn.querySelectorAll('a').forEach(a=>{
+    a.addEventListener('click',()=>{
+      hb.classList.remove('open');
+      mn.classList.remove('open');
+      hb.setAttribute('aria-expanded','false');
+    });
+  });
+  document.addEventListener('click',e=>{
+    if(!mn.contains(e.target)&&!hb.contains(e.target)&&mn.classList.contains('open')){
+      hb.classList.remove('open');
+      mn.classList.remove('open');
+      hb.setAttribute('aria-expanded','false');
+    }
+  });
+}
 window.addEventListener('scroll',()=>{document.querySelector('.navbar')?.classList.toggle('scrolled',window.scrollY>20)},{passive:true});
 function renderNavUser(){const u=Auth.user();document.querySelectorAll('[data-nav-name]').forEach(el=>el.textContent=u?.name||'');document.querySelectorAll('[data-nav-av]').forEach(el=>{if(u?.avatar)el.innerHTML='<img src="'+u.avatar+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%">';else el.textContent=Fmt.init(u?.name||'U')})}
 function sbadge(s){const m={active:'badge-su',online:'badge-su',connected:'badge-su',completed:'badge-su',approved:'badge-su',resolved:'badge-su',deployed:'badge-su',live:'badge-su',inactive:'badge-er',offline:'badge-er',suspended:'badge-er',banned:'badge-er',rejected:'badge-er',failed:'badge-er',deleted:'badge-er',pending:'badge-wn',processing:'badge-wn',in_progress:'badge-wn',building:'badge-wn',expired:'badge-er',router_owner:'badge-info',admin:'badge-bk',customer:'badge-or',developer:'badge-pu',free:'badge-free',open:'badge-or',public:'badge-su',private:'badge-wn'};return '<span class="badge '+(m[s?.toLowerCase()]||'badge-or')+'">'+(s||'—')+'</span>'}

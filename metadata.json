@@ -1,0 +1,7 @@
+{
+  "name": "BRISK Smart Connect",
+  "description": "Cloud WiFi hotspot billing & MikroTik ISP management platform in Kiambu. Sell WiFi, manage routers, vouchers and customers from one dashboard.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
