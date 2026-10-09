@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /admin-
+Disallow: /owner-
+Disallow: /dev-
+Sitemap: https://brisksmartconnect.vercel.app/sitemap.xml

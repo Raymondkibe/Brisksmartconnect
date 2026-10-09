@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://brisksmartconnect.vercel.app/</loc><priority>1.0</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/features.html</loc><priority>0.9</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/pricing.html</loc><priority>0.9</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/hosting.html</loc><priority>0.9</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/services.html</loc><priority>0.8</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/about.html</loc><priority>0.8</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/coverage.html</loc><priority>0.8</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/contact.html</loc><priority>0.8</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/faq.html</loc><priority>0.7</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/partners.html</loc><priority>0.7</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/careers.html</loc><priority>0.7</priority></url>
+  <url><loc>https://brisksmartconnect.vercel.app/network-status.html</loc><priority>0.6</priority></url>
+</urlset>
